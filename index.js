@@ -14,7 +14,7 @@ var connection = mysql.createConnection({
 
 var chatServer = net.createServer();
 
-cabinet_list = {};
+cabinet_list = [];
 reply_msg = {};
 var onlineCount = 0;
 
@@ -179,6 +179,15 @@ function get_timestamp()
     return timestamp;
 }
 
+function getJsonObjLength(jsonObj) {
+    var Length = 0;
+    for (var item in jsonObj) {
+        Length++;
+    }
+    return Length;
+}
+
+
 chatServer.on('connection', function(client) {
 
     client.on('data', function(data){
@@ -186,66 +195,91 @@ chatServer.on('connection', function(client) {
         var data_json = data.toJSON().data;
         var magic = is_magic(data_json);
         var cabinet_id = '';
-        if(magic == true)
+        if(magic === true)
         {
             cabinet_id = get_cabinet_id(data_json); 
             var cabinet_exist = false;
             for(var c in cabinet_list)
             {
-                if(cabinet_list[c].cabinet_id == cabinet_id)
+                if(cabinet_list[c].cabinet_id === cabinet_id)
                 {   
                     cabinet_list[c].handle = client;
                     cabinet_list[c].head = data_json;
                     cabinet_exist = true;
                 }
             }
-            if(cabinet_exist == false)
+            if(cabinet_exist === false)
             {
-                var cabinet = {'cabinet_id':cabinet_id, 'handle':client, 'head':data_json,'payload':''};
+                var cabinet = {'cabinet_id':cabinet_id, 'handle':client, 'head':data_json,'payload':'', 'crc': ''};
                 cabinet_list.push(cabinet);
-            }
-            var payload_length = get_payloadlength(data);
-            if(payload_length == 0)
-            {
-                var msg_type = get_type(data);
-                if(msg_type == 1)
-                {
-                    var msg_reply_type = 2;
-                    var SN = get_SN(data);
-                    var code = [1,0];
-                    var format = 1;
-                    var M = 0;
-                    var server_id = 1001;
-                    var server_name = 'server1';
-                    var payload_reply = {'id': server_id, 'name': server_name, 'addr': '182.61.58.155', 'port': 2137};
-                    var payload_reply_length = payload_reply.length;
-                    console.log('payload reply length is '+ payload_reply_length);
-                    var payloadlength = get_array4(payload_reply_length);
-                    var timestamp = get_timestamp();
-                    var timestamp_bytes = get_array8(timestamp);
-                    var server_id_bytes = get_array8(server_id);
-                    var destID_bytes = get_array8(0);
-                    var token_bytes = get_bytes8(0);
-                    var msg = build_reply(msg_reply_type, SN, code, format, M, payloadlength, timestamp_bytes,server_id_bytes, destID_bytes, token_bytes);
-                    client.write(msg);
-                    client.write(payload_reply);
-                }
             }
         }
         else
         {
-            var payload = data_json;
             for(var c in cabinet_list)
             {
-                if(cabinet_list[c].handle == client)
+                if(cabinet_list[c].handle === client)
                 {
                     cabinet_id = cabinet_list[c].cabinet_id;
-                    console.log(payload);
-                    cabinet_list[c].payload = payload;
-      
+                    var head_data = cabinet_list[c].head;
+                    var payload_length = get_payloadlength(head_data);
+                    if(payload_length === 0)
+                    {
+                        cabinet_list[c].crc = data_json;
+                    }
+                    else
+                    {
+                        if(cabinet_list[c].payload === '')
+                        {
+                            cabinet_list[c].payload = data_json;
+                        }
+                        else
+                        {
+                            cabinet_list[c].crc = data_json;
+                        }
+                    }
                 }
             }
         }
+
+        for(var c in cabinet_list)
+        {
+            if(cabinet_list[c].handle === client)
+            {
+                if(cabinet_list[c].crc !== '')
+                {
+                    var msg_type = get_type(data);
+                    if(msg_type === 1)
+                    {
+                        var msg_reply_type = 2;
+                        var SN = get_SN(data);
+                        var code = [1,0];
+                        var format = 1;
+                        var M = 0;
+                        var server_id = 1001;
+                        var server_name = 'server1';
+                        var payload_reply = {'id': server_id, 'name': server_name, 'addr': '182.61.58.155', 'port': 2137};
+                        var payload_reply_length = JSON.stringify(payload_reply).length;
+                        console.log('payload reply length is '+ payload_reply_length);
+                        var payloadlength = get_array4(payload_reply_length);
+                        var timestamp = get_timestamp();
+                        var timestamp_bytes = get_array8(timestamp);
+                        var server_id_bytes = get_array8(server_id);
+                        var destID_bytes = get_array8(0);
+                        var token_bytes = get_array8(0);
+                        var msg = build_reply(msg_reply_type, SN, code, format, M, payloadlength, timestamp_bytes,server_id_bytes, destID_bytes, token_bytes);
+                        client.write(msg);
+                        console.log('msg send successfully');
+
+                        client.write(JSON.stringify(payload_reply));
+                        client.write(get_array4(0));
+                        console.log('payload send successfully');
+                    }
+                }
+            }
+        }
+
+
         
         //client.write('world\r\n');
         //var token = '';
